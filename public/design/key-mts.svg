@@ -1,0 +1,9 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="55" height="50" viewBox="0 0 55 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Group">
+<path id="Vector" d="M45.5 0.5H9.5C4.52944 0.5 0.5 4.52944 0.5 9.5V40.5C0.5 45.4706 4.52944 49.5 9.5 49.5H45.5C50.4706 49.5 54.5 45.4706 54.5 40.5V9.5C54.5 4.52944 50.4706 0.5 45.5 0.5Z" fill="white" fill-opacity="0.12" stroke="white" stroke-opacity="0.7"/>
+<g id="Vector_2">
+<path d="M8.5 17.5V8.5L12.5 14.5L16.5 8.5V17.5M37.5 8.5H47.5ZM42.5 8.5V17.5ZM47.5 32.5C42.5 28.5 37.5 34.5 40.5 38.5C42.5 41.5 45.5 41.5 47.5 39.5" fill="white" fill-opacity="0.12"/>
+<path d="M8.5 17.5V8.5L12.5 14.5L16.5 8.5V17.5M37.5 8.5H47.5M42.5 8.5V17.5M47.5 32.5C42.5 28.5 37.5 34.5 40.5 38.5C42.5 41.5 45.5 41.5 47.5 39.5" stroke-width="1.6" stroke-linecap="round" stroke="white" stroke-opacity="0.7"/>
+</g>
+</g>
+</svg>

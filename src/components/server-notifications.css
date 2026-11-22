@@ -1,0 +1,39 @@
+.server-notification-trigger { position: relative; flex: none; }
+.server-notification-trigger > span {
+  position: absolute; inset: -3px -5px auto auto; min-width: 15px; padding: 0 3px;
+  border-radius: 6px; background: #c21747; color: #fff; font: 700 9px/15px var(--font);
+}
+.server-notifications-dialog { width: min(540px, calc(100vw - 28px)); }
+.server-notifications-dialog .dialog-content { max-height: 68dvh; overflow-y: auto; overscroll-behavior: contain; }
+.server-notification-summary, .server-notification-status { margin: 0 0 10px; font-size: 12px; color: #61576d; }
+.server-notification-error { margin: 0 0 12px; padding: 9px 12px; font-size: 12px; background: #fff3db; color: #79501b; border-radius: 10px; }
+.server-notification-list { margin: 0; padding: 0; list-style: none; }
+.server-notification-list > li {
+  display: flex; gap: 12px; padding: 13px 10px; border-bottom: 1px solid #eee6fa;
+}
+.server-notification-list > li.is-unread { background: #faf7fd; }
+.server-notification-list > li > div { min-width: 0; }
+.server-notification-list strong, .server-toast-open strong { font-size: 13px; color: #211a2e; overflow-wrap: anywhere; }
+.server-notification-list p { margin: 4px 0; font-size: 12px; line-height: 1.45; color: #61576d; overflow-wrap: anywhere; }
+.server-notification-list time { color: #756b80; font-size: 11px; }
+.server-notification-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 5px; }
+.server-notification-actions .text-button { padding: 0; font-size: 11px; }
+.server-notifications-dialog .dialog-content > .button { margin-top: 12px; }
+.server-notification-symbol {
+  display: grid; place-items: center; flex: none; width: 32px; height: 32px;
+  border-radius: 10px; color: #5d419d; background: #eee6fa;
+}
+.server-notification-symbol.symbol-alert { background: #fdeaf0; color: #b01745; }
+.server-notification-symbol.symbol-circleCheck { background: #e6f4ec; color: #206650; }
+.server-toast-stack {
+  position: fixed; z-index: 100; top: 18px; right: 18px; display: grid;
+  width: min(405px, calc(100vw - 36px)); gap: 10px; pointer-events: none;
+}
+.server-notification-toast, .server-toast-error {
+  display: flex; align-items: start; gap: 10px; padding: 13px; pointer-events: auto;
+  border: 1px solid #e0d3ec; border-radius: 15px; box-shadow: 0 6px 30px #38264d22;
+}
+.server-notification-toast { background: white; }
+.server-toast-open { flex: 1; padding: 0; border: 0; background: none; min-width: 0; text-align: left; }
+.server-toast-open span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 4px; color: #61576d; font-size: 12px; line-height: 1.45; }
+.server-notification-toast .icon-button, .server-toast-error .icon-button { flex: none; width: 24px; height: 24px; }

@@ -1,0 +1,103 @@
+/* At the 1440 px design width the table follows the same five column guides as the header. */
+.incident-queue {
+  margin-top: 26px;
+  min-height: min(782px, calc(100dvh - 240px));
+  border-radius: 22px;
+}
+.incident-queue .incident-queue-toolbar {
+  column-gap: 12px;
+  padding: 7px 14px 16px 16px;
+}
+.incident-queue .incident-tabs { min-height: 42px; height: 42px; }
+.incident-queue .incident-tabs button { min-height: 34px; }
+.incident-search.search-field { height: 42px; min-height: 42px; width: clamp(160px, 19vw, 274px); }
+.incident-search input { font-size: 14px; }
+.incident-queue .queue-filter-button { width: 40px; height: 40px; background: white; }
+.incident-queue .queue-filter-button.active { background: var(--primary-tint); }
+.incident-table th {
+  color: #121212;
+  background: white;
+  padding-block: 8px;
+  height: 34px;
+}
+.incident-table th:first-child { padding-left: 34px; font-size: 16px; }
+.incident-table td { height: 66px; padding-block: 7px; }
+.incident-table .row-critical td:first-child::before {
+  top: 5px;
+  bottom: 5px;
+  left: 6px;
+  background: var(--brand-red);
+}
+.incident-table .status { color: var(--primary); }
+.incident-table .queue-priority { padding-inline: 8px; }
+.incident-table .queue-priority.level-2 { background: var(--ice); color: #34546f; }
+.queue-team-cell > .team-tag, .queue-team-cell .queue-assigned-team { max-width: 100%; }
+.queue-team-cell .team-tag { font-size: 13px; line-height: 16px; }
+.queue-team-cell .team-tag > span:last-child { max-height: 32px; }
+.queue-team-cell .team-avatar { background: var(--primary-tint); color: var(--primary); }
+.queue-assigned-team {
+  display: flex;
+  align-items: center;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+}
+.queue-assigned-team:hover .team-tag > span:last-child { color: var(--primary); text-decoration: underline; }
+.queue-team-cell .assign-team-button {
+  color: var(--ink);
+  border-color: var(--brand-red);
+  padding: 5px 7px;
+  font-size: 13px;
+}
+.assign-team-button .icon { color: var(--primary); }
+.incident-table .queue-incident-copy { gap: 2px; }
+.incident-table .queue-summary-status { color: var(--green); font-size: 11px; margin-top: 2px; display: block; }
+.incident-pagination { padding-block: 8px; min-height: 40px; }
+.incident-summary-meta .state-Resolved, .incident-summary-meta .state-Closed {
+  background: var(--primary-tint);
+  color: var(--primary);
+}
+.incident-detail-layout { gap: 10px; }
+.incident-detail-aside { gap: 11px; }
+.incident-detail-page .deadline-unknown .detail-deadline-band,
+.incident-detail-page .deadline-research .detail-deadline-band {
+  background: var(--primary-tint);
+  color: var(--primary);
+}
+.incident-detail-page .deadline-unknown .detail-deadline-band > strong,
+.incident-detail-page .deadline-research .detail-deadline-band > strong { font-size: 32px; }
+.incident-detail-page .deadline-dates { border-top: 1px solid var(--line); }
+.incident-problem { overflow-wrap: anywhere; }
+.incident-summary .detail-itsm { color: var(--primary); font-size: 13px; }
+.incident-summary .copy-error { color: var(--danger); font-size: 12px; }
+.queue-filter-panel {
+  max-height: min(465px, 65dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.assignment-dialog .form-error .text-button { margin-left: 8px; }
+.assignment-dialog .assignment-current-team { margin-block: 5px; }
+.incident-history .detail-history-position { min-width: auto; }
+
+@media (max-width: 1340px) {
+  .incident-search.search-field { width: 180px; }
+}
+@media (max-width: 1100px) {
+  .incident-queue .queue-search-controls .incident-search { flex: 1; width: auto; }
+  .incident-queue .incident-tabs { flex: auto; }
+}
+@media (max-width: 850px) {
+  .incident-queue { min-height: 0; margin-top: 16px; }
+  .incident-queue .incident-tabs { flex-basis: 100%; }
+}
+
+.detail-archive-note {
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 13px;
+}

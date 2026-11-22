@@ -1,0 +1,241 @@
+import { useEffect, useState } from 'react';
+import type { Incident, Snapshot, Analysis } from '../domain/incidents';
+import { EVENT_LABELS, describeEvent } from '../domain/incidents';
+import { canAssign } from '../domain/operations';
+import { Status, Team, Dialog, Empty, dateTime } from '../components/ui';
+import { Icon } from '../components/Icon';
+import { ApiError, api } from '../data/api';
+import { detailDate, detailSla, incidentItsmUrl, resolutionLabel } from './detailPresentation';
+
+
+export function IncidentDetailPage({ incidentKey, snapshot, online, now, onBack, backLabel, onAssign }: {
+ incidentKey: string;
+ snapshot: Snapshot | null;
+ online: boolean;
+ now: number;
+ onBack: () => void;
+ backLabel: string;
+ onAssign: (id: string) => void;
+}) {
+ const revision = snapshot?.revision ?? 0;
+ const cached = snapshot?.items.find(item => item.sysId === incidentKey || item.id === incidentKey);
+ const [response, setResponse] = useState<Awaited<ReturnType<typeof api.incident>> | null>(null);
+ const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'missing'>('loading');
+ const [attempt, setAttempt] = useState(0);
+ useEffect(() => {
+  if (!online) return;
+  const controller = new AbortController();
+  setStatus('loading');
+  api.incident(incidentKey, controller.signal).then(result => {
+   if (controller.signal.aborted) return;
+   setResponse(result);
+   setStatus('ready');
+  }).catch(error => {
+   if (controller.signal.aborted) return;
+   setStatus(error instanceof ApiError && error.status === 404 ? 'missing' : 'error');
+  });
+  return () => controller.abort();
+ }, [incidentKey, online, revision, attempt]);
+
+ const item = status === 'missing' ? undefined
+  : response && (response.revision >= revision || !cached) ? response.incident : cached;
+ if (!item) {
+  return <section className="surface incident-unavailable">
+   <button className="button secondary detail-back" onClick={onBack}><Icon name="left" size={16}/>{backLabel}</button>
+   {!online ? <Empty title="Нет соединения" icon="inbox">Карточка ещё не сохранена для просмотра без сети.</Empty>
+    : status === 'loading' ? <Empty title="Загружаем инцидент" icon="inbox">Ожидаем ответ сервера.</Empty>
+    : status === 'missing' ? <Empty title="Инцидент недоступен" icon="inbox">Запись отсутствует в реестре.</Empty>
+    : <Empty title="Не удалось загрузить инцидент" icon="inbox"><button className="text-button" onClick={() => setAttempt(value => value + 1)}>Повторить</button></Empty>}
+  </section>;
+ }
+ const assign = online && cached && response?.isPresent !== false ? () => onAssign(item.sysId) : undefined;
+ return <>
+  {status === 'ready' && response?.isPresent === false && <p className="detail-archive-note" role="status">Архивная карточка. Инцидент отсутствует в текущей выгрузке.</p>}
+  {online && status === 'error' && <p className="detail-inline-error" role="status">Не удалось обновить карточку. Показаны последние данные. <button className="text-button" onClick={() => setAttempt(value => value + 1)}>Повторить</button></p>}
+  <Detail item={item} snapshot={snapshot} revision={Math.max(revision, response?.revision ?? 0)} online={online} now={now} onBack={onBack} backLabel={backLabel} onAssign={assign}/>
+ </>;
+}
+
+const HISTORY_PAGE_SIZE = 3;
+
+function IncidentHistory({ item, snapshot, revision, online }: {
+ item: Incident;
+ snapshot: Snapshot | null;
+ revision: number;
+ online: boolean;
+}) {
+ const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
+ const [index, setIndex] = useState(0);
+ const [cacheIndex, setCacheIndex] = useState(0);
+ const [attempt, setAttempt] = useState(0);
+ const [result, setResult] = useState<{
+  cursor: string | undefined;
+  page: Awaited<ReturnType<typeof api.incidentEvents>>;
+ } | null>(null);
+ const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+ const cached = snapshot?.events.filter(event => event.sysId === item.sysId) ?? [];
+ const cursor = cursors[index];
+ const headRevision = index === 0 ? revision : null;
+
+ useEffect(() => {
+  if (!online) return;
+  const controller = new AbortController();
+  setStatus('loading');
+  api.incidentEvents(item.sysId, cursor, controller.signal).then(value => {
+   if (controller.signal.aborted) return;
+   setResult({ cursor, page: value });
+   setStatus('ready');
+  }).catch(() => {
+   if (!controller.signal.aborted) setStatus('error');
+  });
+  return () => controller.abort();
+ }, [online, item.sysId, cursor, headRevision, attempt]);
+
+ const server = result?.cursor === cursor ? result?.page : undefined;
+ const fallback = !online || (status === 'error' && !server && index === 0);
+ const page = fallback ? Math.min(cacheIndex, Math.max(0, Math.ceil(cached.length / HISTORY_PAGE_SIZE) - 1)) : index;
+ const records = fallback
+  ? cached.slice(page * HISTORY_PAGE_SIZE, (page + 1) * HISTORY_PAGE_SIZE)
+  : server?.items ?? [];
+ const nextCursor = fallback ? undefined : server?.nextCursor;
+ const hasNext = fallback ? cached.length > (page + 1) * HISTORY_PAGE_SIZE : Boolean(nextCursor);
+ const pending = online && status === 'loading';
+ const end = page * HISTORY_PAGE_SIZE + records.length;
+ // The cursor API supplies no global total. Only the last page establishes an exact count.
+ const knownTotal = fallback ? cached.length : server && !server.nextCursor ? end : null;
+ function next() {
+  if (fallback) { setCacheIndex(page + 1); return; }
+  if (!nextCursor) return;
+  setCursors([...cursors.slice(0, page + 1), nextCursor]);
+  setIndex(page + 1);
+ }
+ function previous() {
+  if (fallback) setCacheIndex(page - 1);
+  else setIndex(page - 1);
+ }
+ return <section className="surface detail-card incident-history" aria-labelledby="history-title">
+  <div className="detail-history-heading">
+   <h2 id="history-title">История</h2>
+   {(records.length > 0 || page > 0) && <div className="detail-history-pagination">
+    <div className="detail-history-position">
+     {knownTotal !== null && knownTotal > 0 && <span className="detail-history-progress" aria-hidden="true"><i style={{ width: (100 * end / knownTotal) + '%' }}/></span>}
+     <span>{records.length ? `${page * HISTORY_PAGE_SIZE + 1}–${end}${knownTotal !== null ? ' из ' + knownTotal : ''}` : `Страница ${page + 1}`}</span>
+    </div>
+    <div className="detail-history-arrows">
+     <button className="icon-button" aria-label="Предыдущие события инцидента" disabled={pending || page === 0} onClick={previous}><img src="./design/previous.svg" alt="" width="15" height="15"/></button>
+     <button className="icon-button" aria-label="Следующие события инцидента" disabled={pending || !hasNext} onClick={next}><img src="./design/next.svg" alt="" width="15" height="15"/></button>
+    </div>
+   </div>}
+  </div>
+  {status === 'error' && online && <p className="detail-inline-error" role="status">Не удалось загрузить историю. <button className="text-button" onClick={() => setAttempt(value => value + 1)}>Повторить</button></p>}
+  {!online && <p className="detail-muted">Показаны сохранённые события.</p>}
+  {records.length > 0 ? <ol>{records.map(event => <li key={event.eventId}>
+   <div className="detail-history-event"><strong>{event.types.map(type => EVENT_LABELS[type] || 'Изменение').join(' · ')}</strong><time dateTime={event.at}>{dateTime(event.at)}</time></div>
+   <p>{describeEvent(event)}</p>
+  </li>)}</ol> : pending ? <p className="detail-muted" role="status">Загружаем историю…</p>
+   : (!online || status !== 'error') && <DetailEmpty icon="clock" title="История пока пуста" text="Новые изменения инцидента появятся здесь автоматически."/>}
+ </section>;
+}
+
+
+function Detail({ item, snapshot, revision, online, now, onBack, backLabel, onAssign }: {
+ item: Incident; snapshot: Snapshot | null; revision: number; online: boolean;
+ now: number; onBack: () => void; backLabel: string; onAssign?: () => void;
+}) {
+ const [aiOpen, setAiOpen] = useState(false);
+ const [analysis, setAnalysis] = useState<Analysis | null>(null), [busy, setBusy] = useState(false);
+ const [failure, setFailure] = useState<string | null>(null), [retry, setRetry] = useState(0);
+ const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+ const copied = copyState === 'copied';
+ const currentAnalysis = analysis?.revision === revision ? analysis : null;
+ useEffect(() => {
+  if (!aiOpen || !online) return;
+  let alive = true; setBusy(true); setFailure(null); setAnalysis(null);
+  api.analysis(item.sysId).then(value => {
+   if (!alive) return;
+   if (value.revision !== revision) setFailure('Данные изменились. Повторите разбор актуального инцидента.');
+   else setAnalysis(value);
+  }).catch(() => { if (alive) setFailure('Не удалось подготовить разбор. Попробуйте ещё раз.'); })
+   .finally(() => { if (alive) setBusy(false); });
+  return () => { alive = false; };
+ }, [aiOpen, online, item.sysId, revision, retry]);
+ useEffect(() => {
+  if (copyState === 'idle') return;
+  const timer = setTimeout(() => setCopyState('idle'), 2400);
+  return () => clearTimeout(timer);
+ }, [copyState]);
+ async function copyNumber() {
+  try {
+   await navigator.clipboard.writeText(item.id);
+   setCopyState('copied');
+  } catch {
+   setCopyState('error');
+  }
+ }
+ const itsmUrl = incidentItsmUrl(item);
+ const mark = resolutionLabel(item, now);
+ const sla = detailSla(item, now);
+ const priority = ({ 4: 'P1 · Критический', 3: 'P2 · Высокий', 2: 'P3 · Средний', 1: 'P4 · Низкий' } as Record<number, string>)[item.priorityId] || item.priority || 'Приоритет не указан';
+ const facts = [['Продукт', item.productName], ['Сервис', item.service], ['Сценарий использования', item.scenarioName],
+  ['Тип сервиса', item.serviceType], ['Влияние', item.impact], ['Срочность', item.urgency]];
+
+
+ return <article className="incident-detail-page" aria-labelledby="incident-title" data-incident-id={item.sysId}>
+  <div className="incident-detail-layout">
+   <div className="incident-detail-main">
+    <nav className="incident-detail-toolbar" aria-label="Действия инцидента">
+     <button className="button secondary detail-back" onClick={onBack}><Icon name="left" size={16}/>{backLabel}</button>
+     <button disabled={!online} title={online ? 'Открыть разбор' : 'Для разбора нужно подключение к серверу'} className={`button detail-ai-toggle ${aiOpen ? 'selected' : ''}`} aria-expanded={aiOpen} aria-controls="incident-assistant" onClick={() => setAiOpen(value => !value)}>Помощь ИИ<img src="./design/assistant.png" alt="" width="16" height="16"/></button>
+    </nav>
+    <header className="surface incident-summary">
+     <h1 id="incident-title" tabIndex={-1}>{item.header || 'Инцидент без заголовка'}</h1>
+     <p className={`incident-short-description ${item.shortDescription ? '' : 'detail-missing'}`}>{item.shortDescription || 'Краткое описание пока не добавлено'}</p>
+     <div className="incident-summary-meta">
+      <span className="incident-number">{item.id}<button className="icon-button copy-incident" aria-label={copied ? 'Номер скопирован' : 'Копировать номер инцидента'} title={copied ? 'Скопировано' : 'Копировать номер'} onClick={() => void copyNumber()}><Icon name={copied ? 'check' : 'copy'} size={15}/></button></span>
+      <span className={`priority source-priority-${item.priorityId}`}>{priority}</span><Status item={item}/>
+      {mark && <span className="small-tag tone-green">{mark}</span>}
+      {itsmUrl && <a className="detail-itsm" href={itsmUrl} target="_blank" rel="noopener noreferrer">Открыть в ITSM ↗</a>}
+      {copyState === 'error' && <span className="copy-error" role="status">Не удалось скопировать номер.</span>}
+     </div>
+    </header>
+    {aiOpen && <Dialog title="Помощь ИИ" onClose={() => setAiOpen(false)}><section className="incident-assistant detail-card" id="incident-assistant" aria-labelledby="assistant-title">
+     <div className="detail-card-heading"><h2 id="assistant-title"><Icon name="spark" size={18}/>Помощь координатору</h2><span className="small-tag tone-purple">{currentAnalysis?.provider === 'llm' ? 'ИИ-анализ' : 'Анализ по правилам'}</span></div>
+     {!online && <p className="detail-muted" role="status">Для обновления разбора нужно подключение к серверу.</p>}
+     {online && busy && <p className="detail-muted" role="status">Собираем факты и похожие случаи…</p>}
+     {online && failure && <div className="detail-inline-error" role="alert"><p>{failure}</p><button className="text-button" onClick={() => setRetry(value => value + 1)}>Повторить</button></div>}
+     {currentAnalysis && <><p>{currentAnalysis.summary}</p>{currentAnalysis.attention.length > 0 && <ul>{currentAnalysis.attention.map(text => <li key={text}>{text}</li>)}</ul>}
+      <h3>Команды из похожих случаев</h3>{currentAnalysis.candidates.length ? currentAnalysis.candidates.map(candidate => <div className="detail-candidate" key={candidate.team}><Team name={candidate.team}/><p>{candidate.reason}</p><small>Похожие инциденты: {candidate.evidenceIds.join(', ')}</small></div>) : <p className="detail-muted">Недостаточно похожих завершённых случаев для рекомендации.</p>}
+      {currentAnalysis.missing.length > 0 && <details><summary>Каких данных не хватает</summary><ul>{currentAnalysis.missing.map(text => <li key={text}>{text}</li>)}</ul></details>}
+      <small className="detail-muted">Рекомендации требуют проверки координатором.</small></>}
+    </section></Dialog>}
+    <section className="surface detail-card incident-problem" aria-labelledby="problem-title">
+     <h2 id="problem-title">Описание проблемы</h2>{item.description ? <p className="preserve-lines problem-description">{item.description}</p> : <DetailEmpty icon="inbox" title="Описание пока не добавлено" text="Здесь появятся симптомы и обстоятельства инцидента."/>}
+     <h3>Затронутая система</h3><dl className="incident-system-facts">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={value ? undefined : 'detail-missing'}>{value || 'Не указано'}</dd></div>)}</dl>
+    </section>
+    <section className="surface detail-card incident-solution" aria-labelledby="solution-title">
+     <h2 id="solution-title">Описание решения</h2>{item.solution ? <p className="preserve-lines">{item.solution}</p> : <DetailEmpty icon="check" title="Решение пока не описано" text="Когда появится описание решения, оно отобразится здесь."/>}
+     <p className="detail-explanation">Текст может описывать предварительное решение или прошлую попытку, которая не помогла. Факт устранения определяется статусом.</p>
+    </section>
+
+   </div>
+   <aside className="incident-detail-aside" aria-label="Координация инцидента">
+    <section className={`surface detail-card incident-deadline deadline-${sla.kind}`} aria-label="Сроки инцидента">
+     <div className="detail-deadline-band" role="timer" aria-live="off"><span>{sla.label}</span><strong>{sla.value}</strong></div>
+     <dl className="detail-table deadline-dates"><DetailRow label="Регистрация" value={detailDate(item.submitDate)}/><DetailRow label="Дедлайн" value={detailDate(item.deadline)}/></dl>
+    </section>
+    <section className="surface detail-card incident-owner"><h2>Ответственные</h2>
+     <dl className="detail-table"><DetailRow label="Команда" value={item.assignedGroupName} empty="Не назначена"/><DetailRow label="Исполнитель" value={item.assignedEmployee} empty="Не назначен"/><DetailRow label="Логин исполнителя" value={item.assignedEmployeeLogin}/><DetailRow label="Назначение команде" value={detailDate(item.lastAssignmentToTeamDateTime)}/></dl>
+     {onAssign && canAssign(item) && <button className="button secondary detail-assign" onClick={onAssign}><img src="./design/assign.svg" alt="" width="16" height="16"/>Назначить / сменить команду</button>}
+    </section>
+    <IncidentHistory item={item} snapshot={snapshot} revision={revision} online={online}/>
+   </aside>
+  </div>
+ </article>;
+}
+
+function DetailRow({ label, value, empty = 'Не указано' }: { label: string; value?: string | null; empty?: string }) {
+ return <div><dt>{label}</dt><dd className={!value || value === 'Не указано' ? 'detail-missing' : undefined}>{value || empty}</dd></div>;
+}
+function DetailEmpty({ icon, title, text }: { icon: string; title: string; text: string }) {
+ return <div className="detail-empty"><span className="detail-empty-icon" aria-hidden="true"><Icon name={icon} size={22}/></span><strong>{title}</strong><p>{text}</p></div>;
+}
