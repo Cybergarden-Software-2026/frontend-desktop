@@ -5,6 +5,23 @@ import type { Analysis } from '../domain/incidents';
 import { normalizeIncident, normalizeSnapshot, normalizeEvent, type WireEvent, type WireSnapshot } from './wire.ts';
 
 export const API_BASE = '/api/v1';
+const SESSION_PATH = '/auth/coordinator/session';
+const sessionEvents = new EventTarget();
+let sessionVersion = 0;
+
+export interface CoordinatorSession {
+  required: boolean;
+  authenticated: boolean;
+  mode?: 'accounts' | 'shared-key' | 'none';
+  coordinator?: { login: string; displayName: string };
+}
+
+export type Credentials = { login: string; password: string } | { key: string };
+
+export function onUnauthorized(listener: () => void) {
+  sessionEvents.addEventListener('unauthorized', listener);
+  return () => sessionEvents.removeEventListener('unauthorized', listener);
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -17,10 +34,15 @@ export class ApiError extends Error {
 }
 
 async function requestResponse(path: string, init?: RequestInit): Promise<Response> {
+  const version = sessionVersion;
   const headers = new Headers(init?.headers);
   if (init?.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  const response = await fetch(API_BASE + path, { ...init, headers });
+  const response = await fetch(API_BASE + path, { cache: 'no-store', ...init, headers });
   if (!response.ok) {
+    if (response.status === 401 && path !== SESSION_PATH && version === sessionVersion && !init?.signal?.aborted) {
+      sessionVersion++;
+      sessionEvents.dispatchEvent(new Event('unauthorized'));
+    }
     const body = await response.json().catch(() => null);
     throw new ApiError(response.status, body?.error ?? body?.message ?? `Сервер вернул HTTP ${response.status}`);
   }
@@ -33,6 +55,46 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 const snapshotRequest = async (path: string, init?: RequestInit) =>
   normalizeSnapshot(await request<WireSnapshot>(path, init));
+
+function validSession(value: CoordinatorSession | null): CoordinatorSession {
+  if (typeof value?.required !== 'boolean' || typeof value.authenticated !== 'boolean'
+    || (value.mode !== undefined && !['accounts', 'shared-key', 'none'].includes(value.mode))
+    || (value.mode !== undefined && value.required !== (value.mode !== 'none'))
+    || (!value.required && value.authenticated)
+    || (value.mode === 'accounts' && value.authenticated &&
+      (typeof value.coordinator?.login !== 'string' || typeof value.coordinator?.displayName !== 'string'))) {
+    throw new Error('Некорректный ответ сервера при проверке сессии.');
+  }
+  return value;
+}
+
+export async function coordinatorSession(signal: AbortSignal): Promise<CoordinatorSession> {
+  try {
+    return validSession(await request<CoordinatorSession>(SESSION_PATH, { signal }));
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error;
+  }
+  // Confirm an older API without downloading the whole dashboard before launch.
+  const page = await request<{ items: unknown[]; nextCursor: string | null }>('/events?limit=1', { signal });
+  if (!Array.isArray(page?.items) || (page.nextCursor !== null && typeof page.nextCursor !== 'string')) {
+    throw new Error('Сервер не вернул страницу журнала событий.');
+  }
+  return { required: false, authenticated: false, mode: 'none' };
+}
+
+export async function signInCoordinator(credentials: Credentials, signal: AbortSignal) {
+  const result = validSession(await request<CoordinatorSession>(SESSION_PATH, {
+    method: 'POST', body: JSON.stringify({ ...credentials, remember: false }), signal,
+  }));
+  if (!result.authenticated) throw new Error('Сервер не подтвердил вход.');
+  sessionVersion++;
+  return result;
+}
+
+export async function signOutCoordinator(signal: AbortSignal) {
+  await requestResponse(SESSION_PATH, { method: 'DELETE', signal });
+  sessionVersion++;
+}
 
 export interface ServerNotification {
   id: number;

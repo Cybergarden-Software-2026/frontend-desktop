@@ -1,5 +1,5 @@
 // The renderer always requests the same origin. Electron selects the backend in its main process.
-export const defaultOrigin = 'http://127.0.0.1:8080';
+export const defaultOrigin: string = import.meta.env.UNDERCTRL_API_ORIGIN;
 
 export function readLocal(key: string, fallback = '') {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }

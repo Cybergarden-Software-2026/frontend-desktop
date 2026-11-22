@@ -15,11 +15,11 @@ function cached(key: string): Snapshot | null {
  } catch { return null; }
 }
 
-export function useIncidents(origin: string) {
+export function useIncidents(origin: string, cacheSnapshot = true, offlineOnly = false) {
  const storageKey = `underctrl.desktop.snapshot.v1.${origin}`;
  const isLocal = ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname);
- const networkAvailable = useCallback(() => isLocal || navigator.onLine, [isLocal]);
- const [snapshot, setSnapshot] = useState<Snapshot | null>(() => cached(storageKey));
+ const networkAvailable = useCallback(() => !offlineOnly && (isLocal || navigator.onLine), [offlineOnly, isLocal]);
+ const [snapshot, setSnapshot] = useState<Snapshot | null>(() => cacheSnapshot ? cached(storageKey) : null);
  const [connected, setConnected] = useState(false);
  const [checked, setChecked] = useState(false);
  const [online, setOnline] = useState(networkAvailable);
@@ -48,8 +48,10 @@ export function useIncidents(origin: string) {
   setSnapshot(incoming);
   setLoading(false);
   setError(null);
-  try { localStorage.setItem(storageKey, JSON.stringify(incoming)); } catch {}
- }, [storageKey]);
+  if (cacheSnapshot) {
+   try { localStorage.setItem(storageKey, JSON.stringify(incoming)); } catch {}
+  }
+ }, [storageKey, cacheSnapshot]);
 
  const refresh = useCallback((): Promise<void> => {
   if (!networkAvailable()) return Promise.resolve();
@@ -145,7 +147,7 @@ export function useIncidents(origin: string) {
    }
   }
 
-  restore();
+  updateNetwork();
   window.addEventListener('online', updateNetwork);
   window.addEventListener('offline', updateNetwork);
   const retry = setInterval(() => {

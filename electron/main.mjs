@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from 'electron';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import backend from './backend.json' with { type: 'json' };
 
 const scheme = 'underctrl';
 const home = 'underctrl://desktop/';
@@ -30,7 +31,17 @@ async function loadOrigin() {
   try {
     const settings = JSON.parse(await readFile(settingsPath, 'utf8'));
     return apiOrigin(settings.origin);
-  } catch { return apiOrigin(process.env.UNDERCTRL_API_ORIGIN || 'http://127.0.0.1:8080'); }
+  } catch { return apiOrigin(process.env.UNDERCTRL_API_ORIGIN || backend.origin); }
+}
+
+function fetchBackend(origin, pathname, init) {
+  // Cookies normally span ports. Keep each configured origin in its own Chromium jar.
+  const partition = 'persist:backend-' + createHash('sha256').update(origin).digest('hex');
+  const headers = new Headers(init.headers);
+  headers.set('Origin', origin);
+  return session.fromPartition(partition).fetch(origin + pathname, {
+    ...init, headers, credentials: 'include', redirect: 'error', cache: 'no-store',
+  });
 }
 
 function checkSender(event) {
@@ -43,10 +54,21 @@ async function setConnection(event, input) {
   checkSender(event);
   const origin = apiOrigin(input);
   try {
-    const ready = await fetch(origin + '/health/ready', { signal: AbortSignal.timeout(8000), redirect: 'error' });
-    if (!ready.ok || (await ready.json()).database !== true) throw new Error();
+    const signal = AbortSignal.timeout(8000);
+    const status = await fetchBackend(origin, '/api/v1/auth/coordinator/session', { signal });
+    if (status.status === 404) {
+      // Older backends expose the event journal without a coordinator session.
+      const events = await fetchBackend(origin, '/api/v1/events?limit=1', { signal });
+      if (!events.ok) throw new Error();
+      const page = await events.json();
+      if (!Array.isArray(page?.items) || (page.nextCursor !== null && typeof page.nextCursor !== 'string')) throw new Error();
+    } else {
+      if (!status.ok) throw new Error();
+      const info = await status.json();
+      if (typeof info?.required !== 'boolean' || typeof info.authenticated !== 'boolean') throw new Error();
+    }
   } catch {
-    throw new Error('Проверьте адрес, доступность API и подключение сервера к базе данных.');
+    throw new Error('Проверьте адрес сервера и доступность API.');
   }
   await mkdir(path.dirname(settingsPath), { recursive: true });
   const next = settingsPath + '.' + randomUUID() + '.tmp';
@@ -76,11 +98,11 @@ async function serve(request) {
       if (request.headers.has(name)) headers.set(name, request.headers.get(name));
     }
     try {
-      const upstream = await fetch(backendOrigin + url.pathname + url.search, {
-        method: request.method, headers, redirect: 'error', signal: request.signal,
+      const upstream = await fetchBackend(backendOrigin, url.pathname + url.search, {
+        method: request.method, headers, signal: request.signal,
         body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer(),
       });
-      // Preserve the SSE body as a stream; Node fetch has already decoded any response compression.
+      // Stream SSE unchanged. The backend session handles cookies outside the renderer.
       const responseHeaders = new Headers({ 'Cache-Control': 'no-store' });
       for (const name of ['content-type', 'x-request-id', 'retry-after']) {
         if (upstream.headers.has(name)) responseHeaders.set(name, upstream.headers.get(name));
