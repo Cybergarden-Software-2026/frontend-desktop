@@ -3,6 +3,7 @@ import { Brand } from '../components/Brand';
 import { ConnectionNotice } from '../components/ConnectionNotice';
 import { Icon } from '../components/Icon';
 import { ServerNotifications } from '../components/ServerNotifications';
+import type { CoordinatorSession } from '../data/api';
 import { useAlertSignal } from '../data/useAlertSignal';
 import { useIncidents } from '../data/useIncidents';
 import { useMassClusters } from '../data/useMassClusters';
@@ -27,9 +28,12 @@ const pages = [
 const emptyItems: Incident[] = [];
 const emptyEvents: ChangeEvent[] = [];
 
-export function App({ origin }: { origin: string }) {
-  const data = useIncidents(origin);
-  const { snapshot, connected, checked, online, loading, refresh, historyEpoch } = data;
+export function App({ origin, session, offlineOnly, onRetryConnection, onSignOut }: {
+  origin: string; session: CoordinatorSession; offlineOnly: boolean; onRetryConnection: () => void; onSignOut?: () => Promise<void>;
+}) {
+  const data = useIncidents(origin, !session.required, offlineOnly);
+  const { snapshot, connected, checked, online, loading, historyEpoch } = data;
+  const refresh = offlineOnly ? async () => onRetryConnection() : data.refresh;
   const [route, setRoute] = useState(() => readRoute(location.hash));
   const { page, incidentId } = route;
   const workspace = useRef<HTMLDivElement>(null);
@@ -39,8 +43,10 @@ export function App({ origin }: { origin: string }) {
   const [assignId, setAssignId] = useState<string | null>(null);
   const [teamContext, setTeamContext] = useState<{ name: string; token: number } | null>(null);
   const [now, setNow] = useState(Date.now);
-  const [profile, setProfile] = useState(() => readLocal('underctrl.profile'));
-  const readKey = `underctrl.events.read.${origin}`;
+  const workspaceId = session.coordinator ? `${origin}/${encodeURIComponent(session.coordinator.login)}` : origin;
+  const profileKey = session.coordinator ? `underctrl.profile.${workspaceId}` : 'underctrl.profile';
+  const [profile, setProfile] = useState(() => readLocal(profileKey));
+  const readKey = `underctrl.events.read.${workspaceId}`;
   const [lastRead, setLastRead] = useState(() => Number(readLocal(readKey, '0')) || 0);
   const items = snapshot?.items ?? emptyItems;
   const events = snapshot?.events ?? emptyEvents;
@@ -103,10 +109,10 @@ export function App({ origin }: { origin: string }) {
     history.pushState({ connection: true }, '', '#settings');
     setRoute(readRoute('#settings'));
   }
-  const profileTitle = profile || 'Дежурная смена';
+  const profileTitle = profile || session.coordinator?.displayName || 'Дежурная смена';
   const initials = profileTitle.split(/\s+/).slice(0, 2).map(word => word[0]).join('').toLocaleUpperCase('ru');
-  if (page === 'settings') return <ConnectionPage origin={origin} name={profile} onBack={() => history.state?.connection ? history.back() : location.replace('#incidents')} onConnect={(address, name) => {
-    saveLocal('underctrl.profile', name);
+  if (page === 'settings') return <ConnectionPage origin={origin} name={profile} onSignOut={onSignOut} onBack={() => history.state?.connection ? history.back() : location.replace('#incidents')} onConnect={(address, name) => {
+    saveLocal(profileKey, name);
     setProfile(name);
     history.replaceState(null, '', '#incidents');
     if (address !== origin) location.reload();
@@ -127,7 +133,7 @@ export function App({ origin }: { origin: string }) {
       </div>
     </aside>
     <div className="workspace" ref={workspace}><main id="main" className="main" tabIndex={-1}>
-      {(!online || checked && !connected) && <ConnectionNotice online={online} snapshot={snapshot} loading={loading} onRetry={refresh} onConfigure={showConnection} />}
+      {(!online || checked && !connected) && <ConnectionNotice online={offlineOnly ? navigator.onLine : online} snapshot={snapshot} loading={loading} onRetry={refresh} onConfigure={showConnection} />}
       {snapshot?.source.error && <div className="notice notice-warning" role="alert"><Icon name="alert" /><div><strong>Источник данных не обновляется</strong><p>{snapshot.source.error}. Предыдущий корректный снимок сохранён.</p></div></div>}
       <AlertHeader items={items} now={clock} status={snapshot ? 'ready' : checked || !online ? 'offline' : 'loading'} onOpen={openIncident} onJournal={() => { location.hash = 'events'; }} signalSequence={sequence} />
       <div className="screen-content" hidden={!!incidentId}>

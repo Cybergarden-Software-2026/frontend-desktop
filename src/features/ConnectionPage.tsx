@@ -1,16 +1,24 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Brand, KeycapPattern } from '../components/Brand';
 import { normalizedOrigin } from '../app/connection';
-import { api } from '../data/api';
+import { coordinatorSession } from '../data/api';
 
 interface Props {
   origin: string;
   name: string;
   onBack: () => void;
   onConnect: (origin: string, name: string) => void;
+  onSignOut?: () => Promise<void>;
 }
 
-export function ConnectionPage({ origin, name, onBack, onConnect }: Props) {
+export function ConnectionPanel({ children, titleId }: { children: ReactNode; titleId: string }) {
+  return <main className="connection-page"><section className="connection-panel" aria-labelledby={titleId}>
+    <div className="connection-art"><KeycapPattern /><Brand /><h2>Приближая<br />будущее</h2><div className="connection-orbit" aria-hidden="true"><span><img src="/design/globe.png" alt="" width="64" height="64" /></span><i><img src="/design/spark.svg" alt="" /></i></div></div>
+    {children}
+  </section></main>;
+}
+
+export function ConnectionPage({ origin, name, onBack, onConnect, onSignOut }: Props) {
   const [address, setAddress] = useState(origin);
   const [displayName, setDisplayName] = useState(name);
   const [busy, setBusy] = useState(false);
@@ -24,15 +32,22 @@ export function ConnectionPage({ origin, name, onBack, onConnect }: Props) {
     setBusy(true);
     try {
       if (window.underCtrl) await window.underCtrl.setConnection(nextOrigin);
-      else await api.snapshot(AbortSignal.timeout(10_000));
+      else await coordinatorSession(AbortSignal.timeout(10_000));
       onConnect(nextOrigin, displayName.trim());
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : '';
       setError(`Не удалось подключиться к серверу. ${detail}`);
     } finally { setBusy(false); }
   }
-  return <main className="connection-page"><section className="connection-panel" aria-labelledby="connection-title">
-    <div className="connection-art"><KeycapPattern /><Brand /><h2>Приближая<br />будущее</h2><div className="connection-orbit" aria-hidden="true"><span><img src="/design/globe.png" alt="" width="64" height="64" /></span><i><img src="/design/spark.svg" alt="" /></i></div></div>
+  async function signOut() {
+    if (!onSignOut || busy) return;
+    setBusy(true);
+    setError('');
+    try { await onSignOut(); }
+    catch { setError('Не удалось завершить сессию. Проверьте подключение и повторите.'); }
+    finally { setBusy(false); }
+  }
+  return <ConnectionPanel titleId="connection-title">
     <form className="connection-form" onSubmit={connect}>
       <button type="button" className="connection-back" onClick={onBack} disabled={busy}>← К рабочей области</button>
       <h1 id="connection-title">Подключение</h1><p>Выберите сервер для рабочей смены.</p>
@@ -40,6 +55,7 @@ export function ConnectionPage({ origin, name, onBack, onConnect }: Props) {
       <label>Имя в приложении<input name="profile" placeholder="Дежурная смена" maxLength={64} value={displayName} onChange={event => setDisplayName(event.target.value)} /></label>
       {error && <p role="alert" className="form-error">{error}</p>}
       <button type="submit" className="connection-submit" disabled={busy}>{busy ? 'Проверяем соединение…' : 'Подключиться'}</button>
+      {onSignOut && <button type="button" className="text-button session-action" onClick={signOut} disabled={busy}>Выйти из учётной записи</button>}
     </form>
-  </section></main>;
+  </ConnectionPanel>;
 }
